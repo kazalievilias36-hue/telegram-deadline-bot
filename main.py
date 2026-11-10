@@ -28,13 +28,13 @@ days_map = {
 
 LANG = {
     "ru": {
-        "lang_set": "🇷🇺 Язык установлен! Отправьте задание с дедлайном (2026 год). Нажмите /add для просмотра дней.",
+        "lang_set": "🇷🇺 Язык установлен! Теперь используйте /add для добавления задач или /tasks для просмотра расписания (2026 год).",
         "no_deadlines": "📭 У вас пока нет сохраненных дедлайнов.",
         "choose_day": "📅 Выберите день недели, чтобы посмотреть дедлайны:",
         "ai_prompt": "Ты помощник студента-архитектора. Текущий год — 2026. Определи день недели (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) и точную дату/время дедлайна (в формате ДД.ММ.ГГГГ ЧЧ:ММ, если время не указано, ставь 23:59 текущей недели). Верни строго: ДЕНЬ_АНГЛ | ДД.ММ.ГГГГ ЧЧ:ММ | Описание задачи.",
     },
     "kz": {
-        "lang_set": "🇰🇿 Тіл таңдалды! Дедлайны бар тапсырма жіберіңіз (2026 жыл). Күндерді көру үшін /add басыңыз.",
+        "lang_set": "🇰🇿 Тіл таңдалды! Енді тапсырма қосу үшін /add қолданыңыз немесе /tasks арқылы кестені көріңіз (2026 жыл).",
         "no_deadlines": "📭 Сізде әзірге сақталған дедлайндар жоқ.",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
         "ai_prompt": "Сен студенттің көмекшісісің. Жыл — 2026. Апта күнін (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) және дедлайн уақытын (КК.АА.ЖЖЖЖ СС:ММ форматында, уақыт болмаса 23:59) анықта. Формат: АПТА_КҮНІ_АНГЛ | КК.АА.ЖЖЖЖ СС:ММ | Сипаттама.",
@@ -62,22 +62,37 @@ def callback_lang(call):
     bot.answer_callback_query(call.id)
     bot.edit_message_text(LANG[lang]["lang_set"], chat_id, call.message.message_id)
 
-# /add немесе /deadlines базғанда 7 күннің түймелері шығады
-@bot.message_handler(commands=['add', 'deadlines', 'tasks'])
-def cmd_menu(message):
+# /add командасы - дедлайн енгізу жөнінде нұсқау беру үшін
+@bot.message_handler(commands=['add'])
+def cmd_add(message):
+    chat_id = message.chat.id
+    lang = get_lang(chat_id)
+    text = (
+        "✍️ **Добавление дедлайна:**\n"
+        "Отправьте мне текст задания или фото с дедлайном (например: *«В среду сдать чертеж павильона»*). "
+        "Я автоматически распознаю день и сохраню его в график!"
+        if lang == 'ru' else
+        "✍️ **Дедлайн қосу:**\n"
+        "Маған тапсырма мәтінін немесе фотосын жіберіңіз (мысалы: *«Сәрсенбіге павильон сызбасын өткізу»*). "
+        "Мен оны автоматты түрде анықтап, кестеге сақтаймын!"
+    )
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# /deadlines немесе /tasks - 7 күннің батырмаларын шығару үшін
+@bot.message_handler(commands=['deadlines', 'tasks'])
+def cmd_deadlines(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
     markup = telebot.types.InlineKeyboardMarkup(row_width=2)
     for eng_day, kz_day in days_map.items():
-        # Бар болса немесе бәрібір 7 күннің бәрін шығарамыз
         count = len(user_deadlines.get(chat_id, {}).get(kz_day, []))
         label = f"📌 {kz_day} ({count})" if count > 0 else f"⚪ {kz_day}"
         markup.add(telebot.types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
             
     bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
 
-# Апта күнін басқанда сол күннің дедлайндары шығады
+# Күнді басқанда сол күннің дедлайндары шығады
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
 def callback_day(call):
     chat_id = call.message.chat.id
@@ -95,7 +110,7 @@ def callback_day(call):
     bot.answer_callback_query(call.id)
     bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown")
 
-# Мәтін немесе фото арқылы тапсырма қабылдау және ИИ арқылы өңдеу
+# Мәтін немесе фото қабылдап, ИИ арқылы күндерге бөлу
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
@@ -133,7 +148,6 @@ def handle_all_messages(message):
                 
                 matched_kz_day = days_map.get(eng_day, "Жұма")
                 
-                # Уақытын парсить ету
                 try:
                     deadline_time = datetime.strptime(date_str, "%d.%m.%Y %H:%M")
                 except:
@@ -150,7 +164,7 @@ def handle_all_messages(message):
                     "notified": False
                 })
                 
-                bot.reply_to(message, f"✅ Сақталды **{matched_kz_day}** күніне:\n- {task_desc}\n⏰ Уақыты: {date_str}\n\nКүндерді көру үшін /add басыңыз.", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ Сақталды **{matched_kz_day}** күніне:\n- {task_desc}\n⏰ Уақыты: {date_str}\n\nКүндерді көру үшін /tasks басыңыз.", parse_mode="Markdown")
             else:
                 bot.reply_to(message, f"🤖 {ai_reply}")
         else:
@@ -167,18 +181,17 @@ def reminder_worker():
                 for t in tasks:
                     if not t.get("notified", False) and t["time"]:
                         time_left = t["time"] - now
-                        # Егер дедлайнға 15 сағат немесе одан аз уақыт қалса (және уақыты әлі өтпесе)
                         if timedelta(0) < time_left <= timedelta(hours=15):
                             try:
                                 bot.send_message(
                                     chat_id,
-                                    f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day}):\n- {t['text']}\n⏰ Уақыты: {t['time'].strftime('%d.%m.%Y %H:%M')}",
+                                    f"⏰ **ЕСКЕРТУ / НАПОМИНАНИЕ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day}):\n- {t['text']}\n⏰ Уақыты: {t['time'].strftime('%d.%m.%Y %H:%M')}",
                                     parse_mode="Markdown"
                                 )
-                                t["notified"] = True # Қайталап жібермес үшін белгілеу
+                                t["notified"] = True
                             except Exception as e:
                                 print(f"Notification error: {e}")
-        time.sleep(60) # Әр 1 минут сайын тексеріп тұрады
+        time.sleep(60)
 
 # --- FLASK СЕРВЕРІ ---
 app = Flask(__name__)
@@ -191,7 +204,6 @@ def run_bot():
     bot.infinity_polling(none_stop=True, interval=0)
 
 if __name__ == "__main__":
-    # Ескерту жіберетін фондық ағынды қосу
     t_remind = threading.Thread(target=reminder_worker, daemon=True)
     t_remind.start()
 
