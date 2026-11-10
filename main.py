@@ -28,16 +28,16 @@ days_map = {
 
 LANG = {
     "ru": {
-        "lang_set": "🇷🇺 Язык установлен! Теперь используйте /add для добавления задач или /tasks для просмотра расписания (2026 год).",
+        "lang_set": "🇷🇺 Язык установлен! Используйте /add для добавления или /deadlines для просмотра дедлайнов (2026 год).",
         "no_deadlines": "📭 У вас пока нет сохраненных дедлайнов.",
         "choose_day": "📅 Выберите день недели, чтобы посмотреть дедлайны:",
-        "ai_prompt": "Ты помощник студента-архитектора. Текущий год — 2026. Определи день недели (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) и точную дату/время дедлайна (в формате ДД.ММ.ГГГГ ЧЧ:ММ, если время не указано, ставь 23:59 текущей недели). Верни строго: ДЕНЬ_АНГЛ | ДД.ММ.ГГГГ ЧЧ:ММ | Описание задачи.",
+        "ai_prompt": "Ты точный помощник студента-архитектора. Текущий год — 2026. Внимательно проанализируй текст или описание фото. Определи точный день недели (строго одно из слов: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) и дату/время дедлайна (в формате ДД.ММ.ГГГГ ЧЧ:ММ). Формат ответа строго: ДЕНЬ_АНГЛ | ДД.ММ.ГГГГ ЧЧ:ММ | Описание задачи.",
     },
     "kz": {
-        "lang_set": "🇰🇿 Тіл таңдалды! Енді тапсырма қосу үшін /add қолданыңыз немесе /tasks арқылы кестені көріңіз (2026 жыл).",
+        "lang_set": "🇰🇿 Тіл таңдалды! Дедлайн қосу үшін /add немесе кестені көру үшін /deadlines қолданыңыз (2026 жыл).",
         "no_deadlines": "📭 Сізде әзірге сақталған дедлайндар жоқ.",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
-        "ai_prompt": "Сен студенттің көмекшісісің. Жыл — 2026. Апта күнін (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) және дедлайн уақытын (КК.АА.ЖЖЖЖ СС:ММ форматында, уақыт болмаса 23:59) анықта. Формат: АПТА_КҮНІ_АНГЛ | КК.АА.ЖЖЖЖ СС:ММ | Сипаттама.",
+        "ai_prompt": "Сен сәулетші студенттің дәл көмекшісісің. Жыл — 2026. Мәтінді немесе фото сипаттамасын мұқият оқы. Нақты апта күнін (тек мыналардың бірі: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) және дедлайн уақытын (КК.АА.ЖЖЖЖ СС:ММ) анықта. Жауап форматы: АПТА_КҮНІ_АНГЛ | КК.АА.ЖЖЖЖ СС:ММ | Тапсырма сипаттамасы.",
     }
 }
 
@@ -62,24 +62,22 @@ def callback_lang(call):
     bot.answer_callback_query(call.id)
     bot.edit_message_text(LANG[lang]["lang_set"], chat_id, call.message.message_id)
 
-# /add командасы - дедлайн енгізу жөнінде нұсқау беру үшін
 @bot.message_handler(commands=['add'])
 def cmd_add(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     text = (
         "✍️ **Добавление дедлайна:**\n"
-        "Отправьте мне текст задания или фото с дедлайном (например: *«В среду сдать чертеж павильона»*). "
-        "Я автоматически распознаю день и сохраню его в график!"
+        "Отправьте текст задания или фото с датой/днем (например: *«В среду сдать чертеж павильона 1:100»*). "
+        "Я всё распознаю и сохраню на нужный день!"
         if lang == 'ru' else
         "✍️ **Дедлайн қосу:**\n"
-        "Маған тапсырма мәтінін немесе фотосын жіберіңіз (мысалы: *«Сәрсенбіге павильон сызбасын өткізу»*). "
-        "Мен оны автоматты түрде анықтап, кестеге сақтаймын!"
+        "Тапсырма мәтінін немесе күні көрсетілген фотоны жіберіңіз (мысалы: *«Сәрсенбіге 1:100 павильон сызбасы»*). "
+        "Мен оны дұрыс күнге тіркеймін!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# /deadlines немесе /tasks - 7 күннің батырмаларын шығару үшін
-@bot.message_handler(commands=['deadlines', 'tasks'])
+@bot.message_handler(commands=['deadlines'])
 def cmd_deadlines(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
@@ -92,25 +90,47 @@ def cmd_deadlines(message):
             
     bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
 
-# Күнді басқанда сол күннің дедлайндары шығады
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
 def callback_day(call):
     chat_id = call.message.chat.id
     selected_day = call.data.split('_')[1]
     
     tasks = user_deadlines.get(chat_id, {}).get(selected_day, [])
+    markup = telebot.types.InlineKeyboardMarkup()
+    
     if tasks:
         text = f"📌 **{selected_day} күніне арналған дедлайндар (2026):**\n\n"
-        for t in tasks:
-            time_str = t['time'].strftime('%d.%m.%Y %H:%M') if t['time'] else "Уақыты көрсетілмеген"
-            text += f"  - {t['text']} ⏰ ({time_str})\n"
+        for i, t in enumerate(tasks):
+            time_str = t['time'].strftime('%d.%m.%Y %H:%M') if t['time'] else "Уақыты жоқ"
+            notif_status = "🔔 Қосулы" if t.get("notified_set", True) else "🔕 Өшірулі"
+            text += f"{i+1}. {t['text']} ⏰ ({time_str})\n"
+        
+        # Ескертуді басқару батырмасы
+        markup.add(telebot.types.InlineKeyboardButton("🔔 Напоминание / Ескертуді баптау", callback_data=f"notif_{selected_day}"))
     else:
         text = f"📭 {selected_day} күні ешқандай дедлайн жоқ."
         
+    markup.add(telebot.types.InlineKeyboardButton("🔙 Күндерге қайту", callback_data="back_to_days"))
+    
     bot.answer_callback_query(call.id)
-    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
-# Мәтін немесе фото қабылдап, ИИ арқылы күндерге бөлу
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_days")
+def callback_back(call):
+    chat_id = call.message.chat.id
+    lang = get_lang(chat_id)
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    for eng_day, kz_day in days_map.items():
+        count = len(user_deadlines.get(chat_id, {}).get(kz_day, []))
+        label = f"📌 {kz_day} ({count})" if count > 0 else f"⚪ {kz_day}"
+        markup.add(telebot.types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
+    bot.edit_message_text(LANG[lang]["choose_day"], chat_id, call.message.message_id, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('notif_'))
+def callback_notif(call):
+    selected_day = call.data.split('_')[1]
+    bot.answer_callback_query(call.id, text=f"✅ {selected_day} күніне 15 сағат қалғанда хабарландыру жіберіледі!", show_alert=True)
+
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
@@ -118,7 +138,7 @@ def handle_all_messages(message):
     
     user_text = message.text or message.caption
     if not user_text and message.photo:
-        user_text = "Фото архитектурного задания."
+        user_text = "Фото архитектурного задания с дедлайном."
         
     if not user_text:
         return
@@ -146,7 +166,15 @@ def handle_all_messages(message):
                 date_str = parts[1]
                 task_desc = parts[2]
                 
-                matched_kz_day = days_map.get(eng_day, "Жұма")
+                # Дұрыс күнге маппинг жасау (егер табылмаса, дефолтқа кетпей, мәтіннен іздейміз)
+                matched_kz_day = days_map.get(eng_day)
+                if not matched_kz_day:
+                    for eng, kz in days_map.items():
+                        if eng.lower() in eng_day.lower():
+                            matched_kz_day = kz
+                            break
+                    if not matched_kz_day:
+                        matched_kz_day = "Сәрсенбі" # Қателік кезіндегі сенімді нұсқа
                 
                 try:
                     deadline_time = datetime.strptime(date_str, "%d.%m.%Y %H:%M")
@@ -161,10 +189,11 @@ def handle_all_messages(message):
                 user_deadlines[chat_id][matched_kz_day].append({
                     "text": task_desc,
                     "time": deadline_time,
-                    "notified": False
+                    "notified": False,
+                    "notified_set": True
                 })
                 
-                bot.reply_to(message, f"✅ Сақталды **{matched_kz_day}** күніне:\n- {task_desc}\n⏰ Уақыты: {date_str}\n\nКүндерді көру үшін /tasks басыңыз.", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ Сәтті сақталды **{matched_kz_day}** күніне:\n- {task_desc}\n⏰ Уақыты: {date_str}\n\nКестені көру үшін /deadlines басыңыз.", parse_mode="Markdown")
             else:
                 bot.reply_to(message, f"🤖 {ai_reply}")
         else:
@@ -179,13 +208,13 @@ def reminder_worker():
         for chat_id, days in user_deadlines.items():
             for day, tasks in days.items():
                 for t in tasks:
-                    if not t.get("notified", False) and t["time"]:
+                    if not t.get("notified", False) and t.get("notified_set", True) and t["time"]:
                         time_left = t["time"] - now
                         if timedelta(0) < time_left <= timedelta(hours=15):
                             try:
                                 bot.send_message(
                                     chat_id,
-                                    f"⏰ **ЕСКЕРТУ / НАПОМИНАНИЕ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day}):\n- {t['text']}\n⏰ Уақыты: {t['time'].strftime('%d.%m.%Y %H:%M')}",
+                                    f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day}):\n- {t['text']}\n⏰ Уақыты: {t['time'].strftime('%d.%m.%Y %H:%M')}",
                                     parse_mode="Markdown"
                                 )
                                 t["notified"] = True
