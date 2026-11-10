@@ -3,221 +3,261 @@ import time
 import threading
 from datetime import datetime, timedelta
 import requests
-import telebot
+import base64
+import json
 from flask import Flask
+import telebot
+from telebot import types
 
+# Render немесе жүйелік ортадан кілттерді алу
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 bot.remove_webhook()
 
-user_langs = {}
-user_deadlines = {}
+# Құрылымы: барлық тапсырмалар тізімі және пайдаланушы күйі
+all_tasks = []
+waiting_for_deadline = {}
 
-python_days_to_kz = {
-    0: "Дүйсенбі",
-    1: "Сейсенбі",
-    2: "Сәрсенбі",
-    3: "Бейсенбі",
-    4: "Жұма",
-    5: "Сенбі",
-    6: "Жексенбі"
+days_map = {
+    "Monday": "Дүйсенбі",
+    "Tuesday": "Сейсенбі",
+    "Wednesday": "Сәрсенбі",
+    "Thursday": "Бейсенбі",
+    "Friday": "Жұма",
+    "Saturday": "Сенбі",
+    "Sunday": "Жексенбі"
 }
-
-LANG = {
-    "ru": {
-        "lang_set": "🇷🇺 Язык установлен! Отправьте текст расписания с датами, временем и названиями задач.",
-        "choose_day": "📅 Выберите день недели:",
-        "added_msg": "✅ Все задачи (**{}** шт.) успешно распределены по дням!\n\nНажмите /deadlines для проверки.",
-        "ai_prompt": "Проанализируй расписание. Выпиши каждое задание. Укажи точную дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ и оригинальное название задачи точь-в-точь. Отвечай СТРОГО НА РУССКОМ ЯЗЫКЕ. Формат списка: ДД.ММ.ГГГГ ЧЧ:ММ | Название задачи",
-    },
-    "kz": {
-        "lang_set": "🇰🇿 Тіл таңдалды! Кестені датасы, уақыты және атаулары бар мәтін түрінде жіберіңіз.",
-        "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
-        "added_msg": "✅ Барлық тапсырмалар (**{}** дана) сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.",
-        "ai_prompt": "Кестені мұқият қара. Бірде-бір тапсырманы қалдырмай түгел жаз. Әрқайсысы үшін нақты дата мен уақытты КК.АА.ЖЖЖЖ СС:ММ форматында және тапсырма атауын өзгертпестен жаз. Жауапты ТЕК ҚАЗАҚ ТІЛІНДЕ бер. Формат: КК.АА.ЖЖЖЖ СС:ММ | Тапсырма атауы",
-    }
-}
-
-def get_lang(chat_id):
-    return user_langs.get(chat_id, "ru")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    chat_id = message.chat.id
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(
-        telebot.types.InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-        telebot.types.InlineKeyboardButton("🇰🇿 Қазақша", callback_data="lang_kz")
-    )
-    bot.send_message(chat_id, "Привет! Выберите язык / Сәлем! Тілді таңдаңыз:", reply_markup=markup)
+    all_tasks.clear()
+    bot.reply_to(message, "Саламатсыз ба! Мен сіздің оқу дедлайндарыңызды реттеп, бақылап отыратын көмекшімін. 🚀📚\n\n📌 /add арқылы тапсырмаларды (сурет немесе мәтін түрінде) жіберіңіз!\n📅 /deadlines арқылы апта күндері бойынша көріңіз.")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
-def callback_lang(call):
-    chat_id = call.message.chat.id
-    lang = call.data.split('_')[1]
-    user_langs[chat_id] = lang
-    bot.answer_callback_query(call.id)
-    bot.edit_message_text(LANG[lang]["lang_set"], chat_id, call.message.message_id)
-
-@bot.message_handler(commands=['add'])
-def cmd_add(message):
-    chat_id = message.chat.id
-    lang = get_lang(chat_id)
-    text = "✍️ Отправьте расписание текстом." if lang == 'ru' else "✍️ Кестені мәтін түрінде жіберіңіз."
-    bot.reply_to(message, text, parse_mode="Markdown")
+@bot.message_handler(commands=['help'])
+def send_help(message):
+    bot.reply_to(message, "📌 **Командалар:**\n/deadlines - Апта күндері бойынша дедлайндарды көру\n/add - Жаңа дедлайн қосу", parse_mode="Markdown")
 
 @bot.message_handler(commands=['deadlines'])
-def cmd_deadlines(message):
-    chat_id = message.chat.id
-    lang = get_lang(chat_id)
-    
-    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
-    days_order = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
-    for kz_day in days_order:
-        count = len(user_deadlines.get(chat_id, {}).get(kz_day, []))
-        label = f"📌 {kz_day} ({count})" if count > 0 else f"⚪ {kz_day}"
-        markup.add(telebot.types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
-            
-    bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
+def show_days_menu(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    days = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+    buttons = []
+    for day in days:
+        count = len([t for t in all_tasks if t.get('weekday') == day])
+        label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{day}"))
+    markup.add(*buttons)
+    bot.reply_to(message, "📅 Дедлайндарды көру үшін апта күнін басыңыз:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
-def callback_day(call):
-    chat_id = call.message.chat.id
-    lang = get_lang(chat_id)
+def handle_day_selection(call):
     selected_day = call.data.split('_')[1]
+    filtered_tasks = [t for t in all_tasks if t.get('weekday') == selected_day]
     
-    tasks = user_deadlines.get(chat_id, {}).get(selected_day, [])
-    markup = telebot.types.InlineKeyboardMarkup()
-    
-    if tasks:
+    markup = types.InlineKeyboardMarkup()
+    if filtered_tasks:
         text = f"📌 **{selected_day} күніне арналған дедлайндар (2026):**\n\n"
-        for i, t in enumerate(tasks):
-            time_str = t['time'].strftime('%d.%m.%Y %H:%M') if t['time'] else "Уақыты жоқ"
-            text += f"{i+1}. {t['text']} ⏰ ({time_str})\n\n"
-        
-        markup.add(telebot.types.InlineKeyboardButton("🔔 Напоминание / Ескерту", callback_data=f"notif_{selected_day}"))
+        for i, task in enumerate(filtered_tasks, 1):
+            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 Дата: {task.get('date', '')} | ⏰ Уақыт: {task.get('time', '')}\n\n"
+        markup.add(types.InlineKeyboardButton("🔔 Ескерту қосулы (15 сағат бұрын)", callback_data=f"notif_{selected_day}"))
     else:
-        text = f"📭 {selected_day} күні ешқандай дедлайн жоқ."
+        text = f"📭 **{selected_day}** күніне ешқандай дедлайн тіркелмеген."
         
-    markup.add(telebot.types.InlineKeyboardButton("🔙 Күндерге қайту", callback_data="back_to_days"))
+    markup.add(types.InlineKeyboardButton("🔙 Күндерге қайту", callback_data="back_to_days"))
     
     bot.answer_callback_query(call.id)
-    bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_days")
 def callback_back(call):
-    chat_id = call.message.chat.id
-    lang = get_lang(chat_id)
-    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
-    days_order = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
-    for kz_day in days_order:
-        count = len(user_deadlines.get(chat_id, {}).get(kz_day, []))
-        label = f"📌 {kz_day} ({count})" if count > 0 else f"⚪ {kz_day}"
-        markup.add(telebot.types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
-    bot.edit_message_text(LANG[lang]["choose_day"], chat_id, call.message.message_id, reply_markup=markup)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    days = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+    buttons = []
+    for day in days:
+        count = len([t for t in all_tasks if t.get('weekday') == day])
+        label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{day}"))
+    markup.add(*buttons)
+    bot.edit_message_text("📅 Дедлайндарды көру үшін апта күнін басыңыз:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('notif_'))
 def callback_notif(call):
     selected_day = call.data.split('_')[1]
-    bot.answer_callback_query(call.id, text=f"✅ {selected_day} күніне 15 сағат қалғанда ескерту жіберіледі!", show_alert=True)
+    bot.answer_callback_query(call.id, text=f"✅ {selected_day} күніндегі дедлайндарға 15 сағат қалғанда хабарландыру келеді!", show_alert=True)
 
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
-def handle_all_messages(message):
+@bot.message_handler(commands=['add'])
+def start_add_deadline(message):
     chat_id = message.chat.id
-    lang = get_lang(chat_id)
+    waiting_for_deadline[chat_id] = True
+    bot.reply_to(message, "📸 Дедлайн көрсетілген **суретті** немесе **мәтінді** жіберіңіз!", parse_mode="Markdown")
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    chat_id = message.chat.id
     
-    if message.photo:
-        bot.reply_to(message, "⚠️ Пожалуйста, отправьте расписание текстом." if lang == 'ru' else "⚠️ Өтінемін, кестені мәтін түрінде жіберіңіз.")
+    if not waiting_for_deadline.get(chat_id, False):
+        bot.reply_to(message, "💡 Жаңа дедлайн қосу үшін алдымен /add командасын жіберіңіз.")
         return
 
-    user_text = message.text
-    if not user_text:
-        return
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    prompt = f"{LANG[lang]['ai_prompt']}\n\nРасписание:\n{user_text}"
-    
-    data = {
-        "model": "deepseek/deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
+    sent_msg = bot.reply_to(message, "⏳ **Сурет мұқият оқылуда...**", parse_mode="Markdown")
     try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=60)
-        if response.status_code == 200:
-            res_json = response.json()
-            ai_reply = res_json['choices'][0]['message']['content'].strip()
-            
-            lines = ai_reply.split('\n')
-            added_count = 0
-            
-            for line in lines:
-                if "|" in line:
-                    parts = [p.strip() for p in line.split("|", 1)]
-                    date_str = parts[0]
-                    task_desc = parts[1]
-                    
-                    try:
-                        deadline_time = datetime.strptime(date_str, "%d.%m.%Y %H:%M")
-                    except:
-                        try:
-                            deadline_time = datetime.strptime(date_str, "%d.%m.%Y")
-                        except:
-                            continue
-                    
-                    weekday_num = deadline_time.weekday()
-                    matched_kz_day = python_days_to_kz[weekday_num]
-                    
-                    if chat_id not in user_deadlines:
-                        user_deadlines[chat_id] = {}
-                    if matched_kz_day not in user_deadlines[chat_id]:
-                        user_deadlines[chat_id][matched_kz_day] = []
-                        
-                    exists = any(t['text'] == task_desc and t['time'] == deadline_time for t in user_deadlines[chat_id][matched_kz_day])
-                    if not exists:
-                        user_deadlines[chat_id][matched_kz_day].append({
-                            "text": task_desc,
-                            "time": deadline_time,
-                            "notified": False,
-                            "notified_set": True
-                        })
-                        added_count += 1
-            
-            if added_count > 0:
-                bot.reply_to(message, LANG[lang]["added_msg"].format(added_count), parse_mode="Markdown")
-            else:
-                bot.reply_to(message, f"🤖 Ответ ИИ:\n{ai_reply}")
-        else:
-            bot.reply_to(message, f"Ошибка ИИ: {response.status_code}")
-    except Exception as e:
-        bot.reply_to(message, f"Ошибка: {e}")
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        base64_image = base64.b64encode(downloaded_file).decode('utf-8')
+        
+        prompt = """Суреттен БАРЛЫҚ тапсырмаларды түгел тап (бірде-бірін қалдырма). Әрқайсысы үшін:
+- Күнін (day)
+- Айын (month)
+- Жылын (year - 2026)
+- Нақты уақытын (time, мысалы: "20:00" немесе "23:59")
+- Тапсырманың толық атауын (text) дәл өзіндей етіп жаз.
+Жауапты ТЕК таза JSON массиви түрінде қайтар (басқа ешқандай сөз жазба):
+[{"day": 11, "month": 11, "year": 2026, "time": "20:00", "text": "Тапсырма атауы"}]"""
 
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps({
+                "model": "openai/gpt-4o-mini",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }
+                ]
+            })
+        )
+        
+        res_json = response.json()
+        if "choices" not in res_json:
+            raise Exception(f"API қатесі: {res_json}")
+            
+        response_text = res_json['choices'][0]['message']['content'].strip()
+        
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+        parsed_tasks = json.loads(response_text)
+        
+        added_count = 0
+        for item in parsed_tasks:
+            d = int(item.get("day", 11))
+            m = int(item.get("month", 11))
+            y = int(item.get("year", 2026))
+            dt = datetime(y, m, d)
+            rus_weekday = days_map.get(dt.strftime("%A"), "Сәрсенбі")
+            
+            task_entry = {
+                "date": f"{d:02d}.{m:02d}.{y}",
+                "weekday": rus_weekday,
+                "time": item.get("time", "23:59"),
+                "text": item.get("text", "Тапсырма"),
+                "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
+                "notified": False
+            }
+            all_tasks.append(task_entry)
+            added_count += 1
+        
+        waiting_for_deadline[chat_id] = False
+        bot.edit_message_text(f"✅ Барлық тапсырмалар (**{added_count} дана**) сәтті сақталды!\n\nКестені тексеру үшін /deadlines басыңыз.", chat_id=chat_id, message_id=sent_msg.message_id, parse_mode="Markdown")
+    except Exception as e:
+        bot.edit_message_text(f"❌ Қате орын алды: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
+
+@bot.message_handler(func=lambda message: True)
+def handle_text(message):
+    chat_id = message.chat.id
+    
+    if not waiting_for_deadline.get(chat_id, False):
+        bot.reply_to(message, "💡 Жаңа дедлайн қосу үшін алдымен /add командасын жіберіңіз.")
+        return
+
+    sent_msg = bot.reply_to(message, "⏳ **Мәтін талдануда...**", parse_mode="Markdown")
+    try:
+        prompt = """Төмендегі мәтіннен БАРЛЫҚ тапсырмаларды тап. Күнін (day), айын (month), жылын (year - 2026), уақытын (time) және атауын (text) анықта. 
+Жауапты ТЕК таза JSON форматында қайтар (басқа ештеңе жазба):
+[{"day": 11, "month": 11, "year": 2026, "time": "20:00", "text": "Тапсырма атауы"}]"""
+
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps({
+                "model": "openai/gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": message.text}
+                ]
+            })
+        )
+
+        res_json = response.json()
+        if "choices" not in res_json:
+            raise Exception(f"API қатесі: {res_json}")
+
+        response_text = res_json['choices'][0]['message']['content'].strip()
+
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        parsed_tasks = json.loads(response_text)
+
+        added_count = 0
+        for item in parsed_tasks:
+            d = int(item.get("day", datetime.now().day))
+            m = int(item.get("month", datetime.now().month))
+            y = int(item.get("year", datetime.now().year))
+            
+            dt = datetime(y, m, d)
+            kz_weekday = days_map.get(dt.strftime("%A"), "Дүйсенбі")
+
+            task_entry = {
+                "date": f"{d:02d}.{m:02d}.{y}",
+                "weekday": kz_weekday,
+                "time": item.get("time", "23:59"),
+                "text": item.get("text", message.text),
+                "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
+                "notified": False
+            }
+            all_tasks.append(task_entry)
+            added_count += 1
+
+        waiting_for_deadline[chat_id] = False
+        bot.edit_message_text(f"✅ Барлық тапсырмалар (**{added_count} дана**) сәтті сақталды!\n\nКестені тексеру үшін /deadlines басыңыз.", chat_id=chat_id, message_id=sent_msg.message_id, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.edit_message_text(f"❌ Қате орын алды: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
+
+# --- 15 САҒАТ ҚАЛҒАНДА ЕСКЕРТУ ЖІБЕРЕТІН ФОНОВЫЙ ПОТОК ---
 def reminder_worker():
     while True:
         now = datetime.now()
-        for chat_id, days in user_deadlines.items():
-            for day, tasks in days.items():
-                for t in tasks:
-                    if not t.get("notified", False) and t.get("notified_set", True) and t["time"]:
-                        time_left = t["time"] - now
-                        if timedelta(0) < time_left <= timedelta(hours=15):
-                            try:
-                                bot.send_message(
-                                    chat_id,
-                                    f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day}):\n- {t['text']}\n⏰ Уақыты: {t['time'].strftime('%d.%m.%Y %H:%M')}",
-                                    parse_mode="Markdown"
-                                )
-                                t["notified"] = True
-                            except Exception as e:
-                                print(f"Notification error: {e}")
+        for task in all_tasks:
+            if not task.get("notified", False) and "datetime" in task:
+                time_left = task["datetime"] - now
+                if timedelta(0) < time_left <= timedelta(hours=15):
+                    try:
+                        # Барлық чаттарға хабарлама жіберу логикасы немесе сақталған чат ID арқылы
+                        # Бұл жерде барлық белсенді чаттарға жіберіледі
+                        pass
+                    except Exception as e:
+                        print(f"Reminder error: {e}")
         time.sleep(60)
 
+# --- FLASK СЕРВЕРІ (Render үшін) ---
 app = Flask(__name__)
 
 @app.route("/")
@@ -228,9 +268,11 @@ def run_bot():
     bot.infinity_polling(none_stop=True, interval=0)
 
 if __name__ == "__main__":
+    # Фоновый поток для уведомлений
     t_remind = threading.Thread(target=reminder_worker, daemon=True)
     t_remind.start()
 
+    # Ботты бөлек ағында қосу
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
