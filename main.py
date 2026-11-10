@@ -15,7 +15,6 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 bot = telebot.TeleBot(BOT_TOKEN)
 bot.remove_webhook()
 
-# Құрылымы: {chat_id: [tasks...]}
 user_tasks = {}
 user_langs = {}
 waiting_for_deadline = {}
@@ -107,11 +106,9 @@ def handle_day_selection(call):
     if filtered_tasks:
         text = LANG[lang]["tasks_title"].format(selected_day)
         for i, task in enumerate(filtered_tasks, 1):
-            # Тапсырманың бірегей индексін табу үшін жалпы тізімнен іздейміз
             global_idx = tasks.index(task)
             status = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
             text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Эскерту / Напоминание: {status}\n\n"
-            # Әр дедлайнның астына жеке ескертуді қосу/өшіру батырмасы
             markup.add(types.InlineKeyboardButton(f"🔔 #{i} ескертуді өзгерту", callback_data=f"toggle_{global_idx}"))
     else:
         text = LANG[lang]["no_tasks"]
@@ -134,7 +131,6 @@ def callback_toggle_notif(call):
         status_text = LANG[lang]["notif_on"] if tasks[task_idx]["notified_set"] else LANG[lang]["notif_off"]
         bot.answer_callback_query(call.id, text=f"✅ Статус: {status_text}", show_alert=True)
         
-        # Менюді жаңарту үшін сол күнге қайта ораламыз
         selected_day = tasks[task_idx]["weekday"]
         filtered_tasks = [t for t in tasks if t.get('weekday') == selected_day]
         
@@ -180,13 +176,22 @@ def handle_photo(message):
     if not waiting_for_deadline.get(chat_id, False):
         return
 
-    sent_msg = bot.reply_to(message, "⏳ ..." if lang=='ru' else "⏳ Оқылуда...")
+    sent_msg = bot.reply_to(message, "⏳ Оқылуда...")
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         base64_image = base64.b64encode(downloaded_file).decode('utf-8')
         
-        prompt = "Суреттен БАРЛЫҚ тапсырмаларды тап. Күнін (day), айын (month), жылын (year - 2026), уақытын (time) және атауын (text) тап. Жауапты ТЕК таза JSON массиви түрінде қайтар: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
+        # ЖЕСТКИЙ ПРОМПТ ДЛЯ СБОРА ВСЕХ ЗАДАЧ ДО ЕДИНОЙ
+        prompt = """ВНИМАНИЕ! На изображении расписание со множеством задач. Ты обязан выписать АБСОЛЮТНО ВСЕ задачи до единой, не пропуская ни одной строки!
+Для каждой задачи найди:
+- day (день числом, например 11)
+- month (месяц числом, например 11)
+- year (год, 2026)
+- time (точное время слева, например "20:00" или "23:59")
+- text (полный текст/название задачи точь-в-точь как на фото)
+Верни ответ СТРОГО в виде JSON массива (без лишнего текста):
+[{"day": 11, "month": 11, "year": 2026, "time": "20:00", "text": "Название задачи"}]"""
 
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -242,9 +247,9 @@ def handle_text(message):
     if not waiting_for_deadline.get(chat_id, False):
         return
 
-    sent_msg = bot.reply_to(message, "⏳ ...")
+    sent_msg = bot.reply_to(message, "⏳ Талдануда...")
     try:
-        prompt = "Мәтіннен БАРЛЫҚ тапсырмаларды тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
+        prompt = "Мәтіннен БАРЛЫҚ тапсырмаларды түгел тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
