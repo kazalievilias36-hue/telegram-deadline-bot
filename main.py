@@ -13,7 +13,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 bot.remove_webhook()
 
 user_langs = {}
-# Құрылымы: {chat_id: {"Дүйсенбі": [{"text": "...", "time": datetime, "notified": False}, ...]}}
 user_deadlines = {}
 
 python_days_to_kz = {
@@ -28,18 +27,16 @@ python_days_to_kz = {
 
 LANG = {
     "ru": {
-        "lang_set": "🇷🇺 Язык успешно установлен! Отправьте скриншот расписания.",
-        "choose_day": "📅 Выберите день недели, чтобы посмотреть дедлайны:",
-        "added_msg": "✅ Все задачи (**{}** шт.) успешно распределены по дням и точным датам с фото!\n\nНажмите /deadlines для проверки.",
-        "no_tasks": "📭 На этот день нет дедлайнов.",
-        "ai_prompt": "ВНИМАНИЕ! Посмотри на скриншот. На нем для каждой задачи четко указана дата (например, 'среда 11 ноября 2026') и время слева. Выпиши КАЖДОЕ задание до единой. Укажи точную дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ и оригинальное название задачи точь-в-точь как на фото. Отвечай СТРОГО НА РУССКОМ ЯЗЫКЕ. Формат списка: ДД.ММ.ГГГГ ЧЧ:ММ | Название задачи",
+        "lang_set": "🇷🇺 Язык установлен! Отправьте скриншот расписания.",
+        "choose_day": "📅 Выберите день недели:",
+        "added_msg": "✅ Все задачи (**{}** шт.) успешно распределены по дням!\n\nНажмите /deadlines для проверки.",
+        "ai_prompt": "ВНИМАНИЕ! Посмотри на скриншот расписания. Выпиши КАЖДОЕ задание без исключения. Для каждого укажи точную дату и время слева в формате ДД.ММ.ГГГГ ЧЧ:ММ и оригинальное название задачи точь-в-точь как на фото. Отвечай СТРОГО НА РУССКОМ ЯЗЫКЕ. Формат списка: ДД.ММ.ГГГГ ЧЧ:ММ | Название задачи",
     },
     "kz": {
-        "lang_set": "🇰🇿 Тіл сәтті таңдалды! Кесте скриншотын жіберіңіз.",
+        "lang_set": "🇰🇿 Тіл таңдалды! Кесте скриншотын жіберіңіз.",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
-        "added_msg": "✅ Барлық тапсырмалар (**{}** дана) фотодағы нақты күндері мен уақыттары бойынша сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.",
-        "no_tasks": "📭 Бұл күні ешқандай дедлайн жоқ.",
-        "ai_prompt": "НАЗАР АУДАРЫҢЫЗ! Суретті мұқият қара. Онда әр тапсырманың нақты күні (мысалы: 'среда 11 ноября 2026') мен сол жағындағы уақыты көрсетілген. Бірде-бір тапсырманы қалдырмай түгел жаз. Нақты дата мен уақытты КК.АА.ЖЖЖЖ СС:ММ форматында және тапсырманың атауын фотода қалай тұр, солай өзгеріссіз жаз. Жауапты ТЕК ҚАЗАҚ ТІЛІНДЕ бер. Формат: КК.АА.ЖЖЖЖ СС:ММ | Тапсырма атауы",
+        "added_msg": "✅ Барлық тапсырмалар (**{}** дана) фотодағы күндері бойынша сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.",
+        "ai_prompt": "НАЗАР АУДАРЫҢЫЗ! Кесте суретін мұқият қара. Бірде-бір тапсырманы қалдырмай түгел жаз. Әрқайсысы үшін нақты дата мен сол жағындағы уақытты КК.АА.ЖЖЖЖ СС:ММ форматында және тапсырма атауын фотода қалай тұр, солай дәл өзін жаз. Жауапты ТЕК ҚАЗАҚ ТІЛІНДЕ бер. Формат: КК.АА.ЖЖЖЖ СС:ММ | Тапсырма атауы",
     }
 }
 
@@ -69,9 +66,7 @@ def cmd_add(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     text = (
-        "✍️ **Добавление дедлайна:**\nОтправьте скриншот расписания. Я распределю все задачи строго по их датам с картинки!"
-        if lang == 'ru' else
-        "✍️ **Дедлайн қосу:**\nКесте скриншотын жіберіңіз. Мен барлық тапсырмаларды фотодағы даталары бойынша өз күндеріне дәл бөліп сақтаймын!"
+        "✍️ Отправьте скриншот расписания." if lang == 'ru' else "✍️ Кесте скриншотын жіберіңіз."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -92,7 +87,6 @@ def cmd_deadlines(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
 def callback_day(call):
     chat_id = call.message.chat.id
-    lang = get_lang(chat_id)
     selected_day = call.data.split('_')[1]
     
     tasks = user_deadlines.get(chat_id, {}).get(selected_day, [])
@@ -104,7 +98,7 @@ def callback_day(call):
             time_str = t['time'].strftime('%d.%m.%Y %H:%M') if t['time'] else "Уақыты жоқ"
             text += f"{i+1}. {t['text']} ⏰ ({time_str})\n\n"
         
-        markup.add(telebot.types.InlineKeyboardButton("🔔 Напоминание / Ескертуді баптау", callback_data=f"notif_{selected_day}"))
+        markup.add(telebot.types.InlineKeyboardButton("🔔 Напоминание / Ескерту", callback_data=f"notif_{selected_day}"))
     else:
         text = f"📭 {selected_day} күні ешқандай дедлайн жоқ."
         
@@ -128,29 +122,36 @@ def callback_back(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('notif_'))
 def callback_notif(call):
     selected_day = call.data.split('_')[1]
-    bot.answer_callback_query(call.id, text=f"✅ {selected_day} күніне 15 сағат қалғанда хабарландыру жіберіледі!", show_alert=True)
+    bot.answer_callback_query(call.id, text=f"✅ {selected_day} күніне 15 сағат қалғанда ескерту жіберіледі!", show_alert=True)
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
-    user_text = message.text or message.caption
-    if not user_text and message.photo:
-        user_text = "Фото расписания со всеми дедлайнами и датами."
-        
-    if not user_text:
-        return
+    # Фотоны Telegram серверінен жүктеп алып, base64 немесе URL арқылы жіберуге болады, бірақ оңайы — фотоның file_id арқылы OpenRouter-ге vision арқылы беру немесе төмендегідей OpenAI форматтау:
+    image_url = None
+    if message.photo:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+    user_text = message.text or message.caption or "Распознай расписание с картинки."
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
-    prompt = f"{LANG[lang]['ai_prompt']}\n\nЗадание: '{user_text}'"
-    
+
+    content_payload = [{"type": "text", "text": f"{LANG[lang]['ai_prompt']}\n\nЗадание: {user_text}"}]
+    if image_url:
+        content_payload.append({
+            "type": "image_url",
+            "image_url": {"url": image_url}
+        })
+
     data = {
-        "model": "deepseek/deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}]
+        "model": "openai/gpt-4o-mini",  # Суретті қатесіз әрі жылдам оқитын модель
+        "messages": [{"role": "user", "content": content_payload}]
     }
 
     try:
@@ -197,11 +198,11 @@ def handle_all_messages(message):
             if added_count > 0:
                 bot.reply_to(message, LANG[lang]["added_msg"].format(added_count), parse_mode="Markdown")
             else:
-                bot.reply_to(message, f"🤖 ИИ жауабын оқи алмадым:\n{ai_reply}")
+                bot.reply_to(message, f"🤖 Ответ ИИ:\n{ai_reply}")
         else:
-            bot.reply_to(message, f"ИИ қатесі: {response.status_code}")
+            bot.reply_to(message, f"Ошибка ИИ: {response.status_code}")
     except Exception as e:
-        bot.reply_to(message, f"Қате орын алды: {e}")
+        bot.reply_to(message, f"Ошибка: {e}")
 
 def reminder_worker():
     while True:
