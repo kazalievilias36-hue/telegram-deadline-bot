@@ -30,12 +30,12 @@ LANG = {
     "ru": {
         "lang_set": "🇷🇺 Язык установлен! Используйте /add для добавления или /deadlines для просмотра дедлайнов (2026 год).",
         "choose_day": "📅 Выберите день недели, чтобы посмотреть дедлайны:",
-        "ai_prompt": "Ты точный помощник студента. Текущий год — 2026. На изображении расписание, где у каждой задачи указана своя дата (например, 11 ноября, 13 ноября и т.д.) и время. Внимательно сопоставь каждую задачу с её точной датой. Переведи названия месяцев на числа (ноября = 11). Верни ответ строго списком, каждая задача на новой строке в формате: ДД.ММ.ГГГГ ЧЧ:ММ | Описание задачи",
+        "ai_prompt": "Ты точный системный парсер расписания для студента. Текущий год — 2026. Внимательно посмотри на скриншот и найди АБСОЛЮТНО ВСЕ задачи до единой. Для каждой задачи извлеки: 1) Точную дату и время (например, если написано 'среда 11 ноября 2026' и слева '20:00', то это 11.11.2026 20:00). 2) Полный точный текст/название задачи. Верни ответ СТРОГО списком, каждая задача на новой строке в формате: ДД.ММ.ГГГГ ЧЧ:ММ | Полное описание задачи. Не пропускай ни одной задачи!",
     },
     "kz": {
         "lang_set": "🇰🇿 Тіл таңдалды! Дедлайн қосу үшін /add немесе кестені көру үшін /deadlines қолданыңыз (2026 жыл).",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
-        "ai_prompt": "Сен студенттің көмекшісісің. Жыл — 2026. Суреттегі кестеде әр тапсырманың өзінің нақты күні (мысалы: 11 ноября, 13 ноября және т.д.) мен уақыты көрсетілген. Әрбір тапсырманы өз күнімен мұқият сәйкестендір. Ай атауларын санға айналдыр (ноября = 11). Әр тапсырманы жаңа жолдан мына форматта бер: КК.АА.ЖЖЖЖ СС:ММ | Сипаттамасы",
+        "ai_prompt": "Сен студентке арналған дәл кесте парсерісің. Жыл — 2026. Суретті мұқият қарап шығып, БАРЛЫҚ тапсырмаларды ТҮГЕЛ тап (бірде-бірін қалдырма!). Әрқайсысы үшін: 1) Нақты датасы мен сол жағындағы уақытын ал (мысалы: 'среда 11 ноября 2026' және '20:00' болса — 11.11.2026 20:00). 2) Тапсырманың толық атауы мен мәтінін жаз. Жауапты ҚАТАЛ түрде тізім ретінде бер, әр тапсырма жаңа жолдан мына форматта болсын: КК.АА.ЖЖЖЖ СС:ММ | Тапсырманың толық сипаттамасы",
     }
 }
 
@@ -66,10 +66,10 @@ def cmd_add(message):
     lang = get_lang(chat_id)
     text = (
         "✍️ **Добавление дедлайна:**\n"
-        "Отправьте скриншот расписания. Я правильно распознаю дату каждой задачи и распределю их по дням недели!"
+        "Отправьте скриншот расписания. Я распознаю абсолютно все задачи, точное время и распределю их по дням недели!"
         if lang == 'ru' else
         "✍️ **Дедлайн қосу:**\n"
-        "Кесте скриншотын жіберіңіз. Мен әр тапсырманың өз датасын дәл анықтап, тиісті күндерге бөліп сақтаймын!"
+        "Кесте скриншотын жіберіңіз. Мен барлық тапсырмаларды, нақты уақыттарын түгел оқып, күндерге дұрыс бөліп сақтаймын!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -99,7 +99,7 @@ def callback_day(call):
         text = f"📌 **{selected_day} күніне арналған дедлайндар (2026):**\n\n"
         for i, t in enumerate(tasks):
             time_str = t['time'].strftime('%d.%m.%Y %H:%M') if t['time'] else "Уақыты жоқ"
-            text += f"{i+1}. {t['text']} ⏰ ({time_str})\n"
+            text += f"{i+1}. {t['text']} ⏰ ({time_str})\n\n"
         
         markup.add(telebot.types.InlineKeyboardButton("🔔 Напоминание / Ескертуді баптау", callback_data=f"notif_{selected_day}"))
     else:
@@ -134,7 +134,7 @@ def handle_all_messages(message):
     
     user_text = message.text or message.caption
     if not user_text and message.photo:
-        user_text = "Фото расписания с несколькими дедлайнами и датами."
+        user_text = "Фото расписания со всеми дедлайнами."
         
     if not user_text:
         return
@@ -151,7 +151,7 @@ def handle_all_messages(message):
     }
 
     try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=45)
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=data, headers=headers, timeout=60)
         if response.status_code == 200:
             res_json = response.json()
             ai_reply = res_json['choices'][0]['message']['content'].strip()
@@ -159,6 +159,7 @@ def handle_all_messages(message):
             lines = ai_reply.split('\n')
             added_count = 0
             
+            # Егер бұрынғы ескі тізімді тазарту керек болса немесе үстіне қосу керек болса (қазір үстіне қосады немесе жаңартады)
             for line in lines:
                 if "|" in line:
                     parts = [p.strip() for p in line.split("|", 1)]
@@ -181,18 +182,21 @@ def handle_all_messages(message):
                     if matched_kz_day not in user_deadlines[chat_id]:
                         user_deadlines[chat_id][matched_kz_day] = []
                         
-                    user_deadlines[chat_id][matched_kz_day].append({
-                        "text": task_desc,
-                        "time": deadline_time,
-                        "notified": False,
-                        "notified_set": True
-                    })
-                    added_count += 1
+                    # Қайталанып қалмауы үшін тексереміз
+                    exists = any(t['text'] == task_desc and t['time'] == deadline_time for t in user_deadlines[chat_id][matched_kz_day])
+                    if not exists:
+                        user_deadlines[chat_id][matched_kz_day].append({
+                            "text": task_desc,
+                            "time": deadline_time,
+                            "notified": False,
+                            "notified_set": True
+                        })
+                        added_count += 1
             
             if added_count > 0:
-                bot.reply_to(message, f"✅ Барлығы **{added_count}** тапсырма өз даталары бойынша сәтті бөлініп тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ Барлық тапсырмалар (**{added_count} дана**) өз күндері мен нақты уақыттары бойынша сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.", parse_mode="Markdown")
             else:
-                bot.reply_to(message, f"🤖 ИИ жауабын түсіне алмадым: {ai_reply}")
+                bot.reply_to(message, f"🤖 ИИ жауабын оқи алмадым немесе формат сәйкес келмеді:\n{ai_reply}")
         else:
             bot.reply_to(message, f"ИИ қатесі: {response.status_code}")
     except Exception as e:
