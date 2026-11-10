@@ -31,7 +31,7 @@ days_eng_map = {
     "Thursday": ("Четверг", "Бейсенбі"),
     "Friday": ("Пятница", "Жұма"),
     "Saturday": ("Суббота", "Сенбі"),
-    "Sunday": ("Воскресенье", "Жексенбі")
+    "Sunday": ("Воскресенье", "Воскресенье")
 }
 
 LANG = {
@@ -304,7 +304,15 @@ def handle_text(message):
         except Exception as e:
             bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
     else:
-        # Егер /add басылмаған болса, жай ИИ ретінде кез келген сұраққа жауап береді
+        # ПЕРЕДАЕМ ИИ СПИСОК ВСЕХ СОХРАНЕННЫХ ДЕДЛАЙНОВ ПОЛЬЗОВАТЕЛЯ
+        tasks = user_tasks.get(chat_id, [])
+        tasks_context = "У пользователя сохранены следующие дедлайны:\n"
+        if tasks:
+            for t in tasks:
+                tasks_context += f"- Задача: {t.get('text')}, Дата: {t.get('date')} {t.get('time')}, День недели: {t.get('weekday_lang', {}).get('ru')}\n"
+        else:
+            tasks_context += "У пользователя пока нет сохраненных дедлайнов.\n"
+
         try:
             headers = {
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -312,7 +320,10 @@ def handle_text(message):
             }
             ai_data = {
                 "model": "openai/gpt-4o-mini",
-                "messages": [{"role": "user", "content": message.text}]
+                "messages": [
+                    {"role": "system", "content": f"Ты умный бот-помощник по учебе. {tasks_context} Отвечай на вопросы пользователя, опираясь на эти дедлайны, если он о них спрашивает."},
+                    {"role": "user", "content": message.text}
+                ]
             }
             resp = requests.post("https://openrouter.ai/api/v1/chat/completions", json=ai_data, headers=headers, timeout=30)
             if resp.status_code == 200:
