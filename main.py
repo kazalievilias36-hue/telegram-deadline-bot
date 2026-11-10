@@ -65,9 +65,7 @@ def callback_lang(call):
 def cmd_add(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
-    text = (
-        "✍️ Отправьте скриншот расписания." if lang == 'ru' else "✍️ Кесте скриншотын жіберіңіз."
-    )
+    text = "✍️ Отправьте скриншот расписания." if lang == 'ru' else "✍️ Кесте скриншотын жіберіңіз."
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['deadlines'])
@@ -129,7 +127,6 @@ def handle_all_messages(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
-    # Фотоны Telegram серверінен жүктеп алып, base64 немесе URL арқылы жіберуге болады, бірақ оңайы — фотоның file_id арқылы OpenRouter-ге vision арқылы беру немесе төмендегідей OpenAI форматтау:
     image_url = None
     if message.photo:
         file_info = bot.get_file(message.photo[-1].file_id)
@@ -150,7 +147,7 @@ def handle_all_messages(message):
         })
 
     data = {
-        "model": "openai/gpt-4o-mini",  # Суретті қатесіз әрі жылдам оқитын модель
+        "model": "google/gemini-flash-1.5",
         "messages": [{"role": "user", "content": content_payload}]
     }
 
