@@ -36,7 +36,7 @@ days_eng_map = {
 
 LANG = {
     "ru": {
-        "set_lang": "✅ Язык установлен на Русский! Используйте /add для добавления и /deadlines для просмотра.",
+        "set_lang": "✅ Язык успешно установлен на Русский! Используйте /add для добавления и /deadlines для просмотра.",
         "add_prompt": "📸 Отправьте **фото** или **текст** расписания с дедлайнами!",
         "choose_day": "📅 Выберите день недели:",
         "no_tasks": "📭 На этот день дедлайнов нет.",
@@ -44,6 +44,7 @@ LANG = {
         "saved": "✅ Успешно сохранено задач: **{}** шт.\n\nПроверить: /deadlines",
         "notif_on": "🔔 Включено",
         "notif_off": "🔕 Выключено",
+        "toggle_btn": "🔔 Изменить напоминание #{}",
         "back": "🔙 Назад к дням"
     },
     "kz": {
@@ -55,6 +56,7 @@ LANG = {
         "saved": "✅ Барлық тапсырмалар (**{}** дана) сәтті сақталды!\n\nТексеру үшін /deadlines басыңыз.",
         "notif_on": "🔔 Қосулы",
         "notif_off": "🔕 Өшірулі",
+        "toggle_btn": "🔔 #{}" " ескертуді өзгерту",
         "back": "🔙 Күндерге қайту"
     }
 }
@@ -92,7 +94,6 @@ def show_days_menu(message):
     for day in days:
         count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        # Callback үшін қазақша түпнұсқасын сақтаймыз
         kz_day = days_data["kz"][days_data[lang].index(day)]
         buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
     markup.add(*buttons)
@@ -114,8 +115,8 @@ def handle_day_selection(call):
         for i, task in enumerate(filtered_tasks, 1):
             global_idx = tasks.index(task)
             status = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
-            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Напоминание / Ескерту: {status}\n\n"
-            markup.add(types.InlineKeyboardButton(f"🔔 #{i} ескертуді өзгерту", callback_data=f"toggle_{global_idx}"))
+            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {status}\n\n"
+            markup.add(types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{global_idx}"))
     else:
         text = LANG[lang]["no_tasks"]
         
@@ -146,8 +147,8 @@ def callback_toggle_notif(call):
         for i, task in enumerate(filtered_tasks, 1):
             g_idx = tasks.index(task)
             st = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
-            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Ескерту: {st}\n\n"
-            markup.add(types.InlineKeyboardButton(f"🔔 #{i} ескертуді өзгерту", callback_data=f"toggle_{g_idx}"))
+            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {st}\n\n"
+            markup.add(types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{g_idx}"))
         markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
         
         bot.edit_message_text(text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
@@ -184,7 +185,7 @@ def handle_photo(message):
     if not waiting_for_deadline.get(chat_id, False):
         return
 
-    sent_msg = bot.reply_to(message, "⏳ Оқылуда...")
+    sent_msg = bot.reply_to(message, "⏳ Обработка..." if lang == 'ru' else "⏳ Оқылуда...")
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
@@ -255,9 +256,9 @@ def handle_text(message):
     if not waiting_for_deadline.get(chat_id, False):
         return
 
-    sent_msg = bot.reply_to(message, "⏳ Талдануда...")
+    sent_msg = bot.reply_to(message, "⏳ Анализ..." if lang == 'ru' else "⏳ Талдануда...")
     try:
-        prompt = "Мәтіннен БАРЛЫҚ тапсырмаларды түгел тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
+        prompt = "Найди ВСЕ задачи. День (day), месяц (month), год (year - 2026), время (time), текст (text). ТОЛЬКО JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Задача\"}]" if lang == 'ru' else "Мәтіннен БАРЛЫҚ тапсырмаларды түгел тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
@@ -315,11 +316,8 @@ def reminder_worker():
                     if timedelta(0) < time_left <= timedelta(hours=15):
                         try:
                             day_name = task["weekday_lang"][lang]
-                            bot.send_message(
-                                chat_id,
-                                f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day_name}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}",
-                                parse_mode="Markdown"
-                            )
+                            msg = f"⏰ **НАПОМИНАНИЕ!**\n\nДо дедлайна осталось 15 часов!\n📌 Задача ({day_name}):\n- {task['text']}\n⏰ Время: {task['datetime'].strftime('%d.%m.%Y %H:%M')}" if lang == 'ru' else f"⏰ **ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day_name}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}"
+                            bot.send_message(chat_id, msg, parse_mode="Markdown")
                             task["notified"] = True
                         except Exception as e:
                             print(f"Reminder error: {e}")
