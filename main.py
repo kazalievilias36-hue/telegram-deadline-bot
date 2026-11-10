@@ -1,4 +1,3 @@
-!pip install -q pyTelegramBotAPI requests
 
 import os
 import requests
