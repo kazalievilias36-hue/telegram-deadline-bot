@@ -1,12 +1,11 @@
-
 import os
 import requests
 import telebot
-from datetime import datetime
-from google.colab import userdata
+from flask import Flask
 
-BOT_TOKEN = userdata.get('BOT_TOKEN')
-OPENROUTER_API_KEY = userdata.get('OPENROUTER_API_KEY')
+# Токендерді Render ортасынан (Environment) аламыз
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 bot.remove_webhook()
@@ -14,7 +13,7 @@ bot.remove_webhook()
 user_langs = {}  # {chat_id: 'ru' / 'kz'}
 user_deadlines = {}  # {chat_id: { "Дүйсенбі": [...], "Сейсенбі": [...] }}
 
-# Апта күндерінің сөздігі (қазақша және орысша сәйкестігі)
+# Апта күндерінің сөздігі
 days_map = {
     "Monday": "Дүйсенбі",
     "Tuesday": "Сейсенбі",
@@ -61,7 +60,6 @@ def callback_lang(call):
     bot.answer_callback_query(call.id)
     bot.edit_message_text(LANG[lang]["lang_set"], chat_id, call.message.message_id)
 
-# Барлық дедлайндарды көру және күн бойынша таңдау түймелерін шығару
 @bot.message_handler(commands=['deadlines', 'tasks'])
 def cmd_deadlines(message):
     chat_id = message.chat.id
@@ -78,7 +76,6 @@ def cmd_deadlines(message):
             
     bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
 
-# Қай күнді басса, сол күннің тапсырмаларын шығару
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
 def callback_day(call):
     chat_id = call.message.chat.id
@@ -95,7 +92,6 @@ def callback_day(call):
     bot.answer_callback_query(call.id)
     bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown")
 
-# Хабарламаларды немесе фотоларды қабылдап, ИИ арқылы күндерге бөлу
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
@@ -130,7 +126,6 @@ def handle_all_messages(message):
                 eng_day = parts[0].strip()
                 task_part = parts[1].strip()
                 
-                # Ағылшынша күнді қазақшаға айналдырамыз (days_map арқылы)
                 matched_kz_day = days_map.get(eng_day, "Жұма")
                 
                 if chat_id not in user_deadlines:
@@ -147,5 +142,21 @@ def handle_all_messages(message):
     except Exception as e:
         bot.reply_to(message, f"Қате орын алды: {e}")
 
-print('Бот сәтті іске қосылды...')
-bot.infinity_polling(none_stop=True, interval=0)
+# --- FLASK СЕРВЕРІ (Render үшін міндетті) ---
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is alive and running 24/7!"
+
+import threading
+def run_bot():
+    bot.infinity_polling(none_stop=True, interval=0)
+
+if __name__ == "__main__":
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
