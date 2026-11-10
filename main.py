@@ -304,7 +304,7 @@ def handle_text(message):
         except Exception as e:
             bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
     else:
-        # /add басылмаған болса, кез келген хабарламаға қарапайым ИИ ретінде жауап береді
+        # Егер /add басылмаған болса, жай ИИ ретінде кез келген сұраққа жауап береді
         try:
             headers = {
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -329,4 +329,34 @@ def reminder_worker():
         for chat_id, tasks in user_tasks.items():
             lang = get_lang(chat_id)
             for task in tasks:
-                if not task.get("notified", False) and
+                if not task.get("notified", False) and task.get("notified_set", True) and "datetime" in task:
+                    time_left = task["datetime"] - now
+                    if timedelta(0) < time_left <= timedelta(hours=15):
+                        try:
+                            day_name = task["weekday_lang"][lang]
+                            msg = f"⏰ **НАПОМИНАНИЕ!**\n\nДо дедлайна осталось 15 часов!\n📌 Задача ({day_name}):\n- {task['text']}\n⏰ Время: {task['datetime'].strftime('%d.%m.%Y %H:%M')}" if lang == 'ru' else f"⏰ **ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day_name}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}"
+                            bot.send_message(chat_id, msg, parse_mode="Markdown")
+                            task["notified"] = True
+                        except Exception as e:
+                            print(f"Reminder error: {e}")
+        time.sleep(60)
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is alive and running 24/7!"
+
+def run_bot():
+    bot.infinity_polling(none_stop=True, interval=0)
+
+if __name__ == "__main__":
+    t_remind = threading.Thread(target=reminder_worker, daemon=True)
+    t_remind.start()
+
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
