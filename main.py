@@ -19,19 +19,23 @@ user_tasks = {}
 user_langs = {}
 waiting_for_deadline = {}
 
-days_map = {
-    "Monday": "Дүйсенбі",
-    "Tuesday": "Сейсенбі",
-    "Wednesday": "Сәрсенбі",
-    "Thursday": "Бейсенбі",
-    "Friday": "Жұма",
-    "Saturday": "Сенбі",
-    "Sunday": "Жексенбі"
+days_data = {
+    "ru": ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"],
+    "kz": ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+}
+
+days_eng_map = {
+    "Monday": ("Понедельник", "Дүйсенбі"),
+    "Tuesday": ("Вторник", "Сейсенбі"),
+    "Wednesday": ("Среда", "Сәрсенбі"),
+    "Thursday": ("Четверг", "Бейсенбі"),
+    "Friday": ("Пятница", "Жұма"),
+    "Saturday": ("Суббота", "Сенбі"),
+    "Sunday": ("Воскресенье", "Жексенбі")
 }
 
 LANG = {
     "ru": {
-        "welcome": "🇷🇺 Привет! Я твой помощник по дедлайнам.\n\nВыбери язык / Тілді таңдаңыз:",
         "set_lang": "✅ Язык установлен на Русский! Используйте /add для добавления и /deadlines для просмотра.",
         "add_prompt": "📸 Отправьте **фото** или **текст** расписания с дедлайнами!",
         "choose_day": "📅 Выберите день недели:",
@@ -43,7 +47,6 @@ LANG = {
         "back": "🔙 Назад к дням"
     },
     "kz": {
-        "welcome": "🇰🇿 Саламатсыз ба! Мен сіздің дедлайн көмекшіңізбін.\n\nТілді таңдаңыз / Выберите язык:",
         "set_lang": "✅ Тіл қазақшаға ауыстырылды! Тапсырма қосу үшін /add, көру үшін /deadlines басыңыз.",
         "add_prompt": "📸 Дедлайн көрсетілген **суретті** немесе **мәтінді** жіберіңіз!",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
@@ -84,12 +87,14 @@ def show_days_menu(message):
     tasks = user_tasks.get(chat_id, [])
     
     markup = types.InlineKeyboardMarkup(row_width=2)
-    days = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+    days = days_data[lang]
     buttons = []
     for day in days:
-        count = len([t for t in tasks if t.get('weekday') == day])
+        count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{day}"))
+        # Callback үшін қазақша түпнұсқасын сақтаймыз
+        kz_day = days_data["kz"][days_data[lang].index(day)]
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
     markup.add(*buttons)
     bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
 
@@ -97,18 +102,19 @@ def show_days_menu(message):
 def handle_day_selection(call):
     chat_id = call.message.chat.id
     lang = get_lang(chat_id)
-    selected_day = call.data.split('_')[1]
+    selected_kz_day = call.data.split('_')[1]
+    selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
     
     tasks = user_tasks.get(chat_id, [])
-    filtered_tasks = [t for t in tasks if t.get('weekday') == selected_day]
+    filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
     
     markup = types.InlineKeyboardMarkup()
     if filtered_tasks:
-        text = LANG[lang]["tasks_title"].format(selected_day)
+        text = LANG[lang]["tasks_title"].format(selected_day_name)
         for i, task in enumerate(filtered_tasks, 1):
             global_idx = tasks.index(task)
             status = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
-            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Эскерту / Напоминание: {status}\n\n"
+            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Напоминание / Ескерту: {status}\n\n"
             markup.add(types.InlineKeyboardButton(f"🔔 #{i} ескертуді өзгерту", callback_data=f"toggle_{global_idx}"))
     else:
         text = LANG[lang]["no_tasks"]
@@ -131,15 +137,16 @@ def callback_toggle_notif(call):
         status_text = LANG[lang]["notif_on"] if tasks[task_idx]["notified_set"] else LANG[lang]["notif_off"]
         bot.answer_callback_query(call.id, text=f"✅ Статус: {status_text}", show_alert=True)
         
-        selected_day = tasks[task_idx]["weekday"]
-        filtered_tasks = [t for t in tasks if t.get('weekday') == selected_day]
+        selected_kz_day = tasks[task_idx]["weekday_lang"]["kz"]
+        selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
+        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
         
         markup = types.InlineKeyboardMarkup()
-        text = LANG[lang]["tasks_title"].format(selected_day)
+        text = LANG[lang]["tasks_title"].format(selected_day_name)
         for i, task in enumerate(filtered_tasks, 1):
             g_idx = tasks.index(task)
             st = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
-            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Эскерту: {st}\n\n"
+            text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Ескерту: {st}\n\n"
             markup.add(types.InlineKeyboardButton(f"🔔 #{i} ескертуді өзгерту", callback_data=f"toggle_{g_idx}"))
         markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
         
@@ -152,12 +159,13 @@ def callback_back(call):
     tasks = user_tasks.get(chat_id, [])
     
     markup = types.InlineKeyboardMarkup(row_width=2)
-    days = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+    days = days_data[lang]
     buttons = []
     for day in days:
-        count = len([t for t in tasks if t.get('weekday') == day])
+        count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{day}"))
+        kz_day = days_data["kz"][days_data[lang].index(day)]
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
     markup.add(*buttons)
     bot.edit_message_text(LANG[lang]["choose_day"], chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
 
@@ -182,7 +190,6 @@ def handle_photo(message):
         downloaded_file = bot.download_file(file_info.file_path)
         base64_image = base64.b64encode(downloaded_file).decode('utf-8')
         
-        # ЖЕСТКИЙ ПРОМПТ ДЛЯ СБОРА ВСЕХ ЗАДАЧ ДО ЕДИНОЙ
         prompt = """ВНИМАНИЕ! На изображении расписание со множеством задач. Ты обязан выписать АБСОЛЮТНО ВСЕ задачи до единой, не пропуская ни одной строки!
 Для каждой задачи найди:
 - day (день числом, например 11)
@@ -220,11 +227,12 @@ def handle_photo(message):
             m = int(item.get("month", 11))
             y = int(item.get("year", 2026))
             dt = datetime(y, m, d)
-            rus_weekday = days_map.get(dt.strftime("%A"), "Сәрсенбі")
+            eng_wday = dt.strftime("%A")
+            wday_dict = {"ru": days_eng_map[eng_wday][0], "kz": days_eng_map[eng_wday][1]}
             
             task_entry = {
                 "date": f"{d:02d}.{m:02d}.{y}",
-                "weekday": rus_weekday,
+                "weekday_lang": wday_dict,
                 "time": item.get("time", "23:59"),
                 "text": item.get("text", "Тапсырма"),
                 "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
@@ -276,11 +284,12 @@ def handle_text(message):
             m = int(item.get("month", datetime.now().month))
             y = int(item.get("year", datetime.now().year))
             dt = datetime(y, m, d)
-            kz_weekday = days_map.get(dt.strftime("%A"), "Дүйсенбі")
+            eng_wday = dt.strftime("%A")
+            wday_dict = {"ru": days_eng_map[eng_wday][0], "kz": days_eng_map[eng_wday][1]}
 
             task_entry = {
                 "date": f"{d:02d}.{m:02d}.{y}",
-                "weekday": kz_weekday,
+                "weekday_lang": wday_dict,
                 "time": item.get("time", "23:59"),
                 "text": item.get("text", message.text),
                 "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
@@ -299,14 +308,16 @@ def reminder_worker():
     while True:
         now = datetime.now()
         for chat_id, tasks in user_tasks.items():
+            lang = get_lang(chat_id)
             for task in tasks:
                 if not task.get("notified", False) and task.get("notified_set", True) and "datetime" in task:
                     time_left = task["datetime"] - now
                     if timedelta(0) < time_left <= timedelta(hours=15):
                         try:
+                            day_name = task["weekday_lang"][lang]
                             bot.send_message(
                                 chat_id,
-                                f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({task['weekday']}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}",
+                                f"⏰ **НАПОМИНАНИЕ / ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day_name}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}",
                                 parse_mode="Markdown"
                             )
                             task["notified"] = True
