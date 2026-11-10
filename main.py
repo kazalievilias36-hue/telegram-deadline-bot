@@ -27,16 +27,16 @@ python_days_to_kz = {
 
 LANG = {
     "ru": {
-        "lang_set": "🇷🇺 Язык установлен! Отправьте скриншот расписания.",
+        "lang_set": "🇷🇺 Язык установлен! Отправьте текст расписания с датами, временем и названиями задач.",
         "choose_day": "📅 Выберите день недели:",
         "added_msg": "✅ Все задачи (**{}** шт.) успешно распределены по дням!\n\nНажмите /deadlines для проверки.",
-        "ai_prompt": "ВНИМАНИЕ! Посмотри на скриншот расписания. Выпиши КАЖДОЕ задание без исключения. Для каждого укажи точную дату и время слева в формате ДД.ММ.ГГГГ ЧЧ:ММ и оригинальное название задачи точь-в-точь как на фото. Отвечай СТРОГО НА РУССКОМ ЯЗЫКЕ. Формат списка: ДД.ММ.ГГГГ ЧЧ:ММ | Название задачи",
+        "ai_prompt": "Проанализируй расписание. Выпиши каждое задание. Укажи точную дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ и оригинальное название задачи точь-в-точь. Отвечай СТРОГО НА РУССКОМ ЯЗЫКЕ. Формат списка: ДД.ММ.ГГГГ ЧЧ:ММ | Название задачи",
     },
     "kz": {
-        "lang_set": "🇰🇿 Тіл таңдалды! Кесте скриншотын жіберіңіз.",
+        "lang_set": "🇰🇿 Тіл таңдалды! Кестені датасы, уақыты және атаулары бар мәтін түрінде жіберіңіз.",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
-        "added_msg": "✅ Барлық тапсырмалар (**{}** дана) фотодағы күндері бойынша сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.",
-        "ai_prompt": "НАЗАР АУДАРЫҢЫЗ! Кесте суретін мұқият қара. Бірде-бір тапсырманы қалдырмай түгел жаз. Әрқайсысы үшін нақты дата мен сол жағындағы уақытты КК.АА.ЖЖЖЖ СС:ММ форматында және тапсырма атауын фотода қалай тұр, солай дәл өзін жаз. Жауапты ТЕК ҚАЗАҚ ТІЛІНДЕ бер. Формат: КК.АА.ЖЖЖЖ СС:ММ | Тапсырма атауы",
+        "added_msg": "✅ Барлық тапсырмалар (**{}** дана) сәтті тіркелді!\n\nКестені тексеру үшін /deadlines басыңыз.",
+        "ai_prompt": "Кестені мұқият қара. Бірде-бір тапсырманы қалдырмай түгел жаз. Әрқайсысы үшін нақты дата мен уақытты КК.АА.ЖЖЖЖ СС:ММ форматында және тапсырма атауын өзгертпестен жаз. Жауапты ТЕК ҚАЗАҚ ТІЛІНДЕ бер. Формат: КК.АА.ЖЖЖЖ СС:ММ | Тапсырма атауы",
     }
 }
 
@@ -65,7 +65,7 @@ def callback_lang(call):
 def cmd_add(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
-    text = "✍️ Отправьте скриншот расписания." if lang == 'ru' else "✍️ Кесте скриншотын жіберіңіз."
+    text = "✍️ Отправьте расписание текстом." if lang == 'ru' else "✍️ Кестені мәтін түрінде жіберіңіз."
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['deadlines'])
@@ -85,6 +85,7 @@ def cmd_deadlines(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
 def callback_day(call):
     chat_id = call.message.chat.id
+    lang = get_lang(chat_id)
     selected_day = call.data.split('_')[1]
     
     tasks = user_deadlines.get(chat_id, {}).get(selected_day, [])
@@ -127,28 +128,24 @@ def handle_all_messages(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
-    image_url = None
     if message.photo:
-        file_info = bot.get_file(message.photo[-1].file_id)
-        image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        bot.reply_to(message, "⚠️ Пожалуйста, отправьте расписание текстом." if lang == 'ru' else "⚠️ Өтінемін, кестені мәтін түрінде жіберіңіз.")
+        return
 
-    user_text = message.text or message.caption or "Распознай расписание с картинки."
+    user_text = message.text
+    if not user_text:
+        return
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    content_payload = [{"type": "text", "text": f"{LANG[lang]['ai_prompt']}\n\nЗадание: {user_text}"}]
-    if image_url:
-        content_payload.append({
-            "type": "image_url",
-            "image_url": {"url": image_url}
-        })
-
+    prompt = f"{LANG[lang]['ai_prompt']}\n\nРасписание:\n{user_text}"
+    
     data = {
-        "model": "google/gemini-flash-1.5",
-        "messages": [{"role": "user", "content": content_payload}]
+        "model": "deepseek/deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}]
     }
 
     try:
