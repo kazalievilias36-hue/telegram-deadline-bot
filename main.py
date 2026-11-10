@@ -183,6 +183,7 @@ def handle_photo(message):
     lang = get_lang(chat_id)
     
     if not waiting_for_deadline.get(chat_id, False):
+        bot.reply_to(message, "💡 Используйте /add для добавления дедлайна." if lang == 'ru' else "💡 Жаңа дедлайн қосу үшін /add басыңыз.")
         return
 
     sent_msg = bot.reply_to(message, "⏳ Обработка..." if lang == 'ru' else "⏳ Оқылуда...")
@@ -253,57 +254,74 @@ def handle_text(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
-    if not waiting_for_deadline.get(chat_id, False):
-        return
+    if waiting_for_deadline.get(chat_id, False):
+        sent_msg = bot.reply_to(message, "⏳ Анализ..." if lang == 'ru' else "⏳ Талдануда...")
+        try:
+            prompt = "Найди ВСЕ задачи. День (day), месяц (month), год (year - 2026), время (time), текст (text). ТОЛЬКО JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Задача\"}]" if lang == 'ru' else "Мәтіннен БАРЛЫҚ тапсырмаларды түгел тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+                data=json.dumps({
+                    "model": "openai/gpt-4o-mini",
+                    "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": message.text}]
+                })
+            )
 
-    sent_msg = bot.reply_to(message, "⏳ Анализ..." if lang == 'ru' else "⏳ Талдануда...")
-    try:
-        prompt = "Найди ВСЕ задачи. День (day), месяц (month), год (year - 2026), время (time), текст (text). ТОЛЬКО JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Задача\"}]" if lang == 'ru' else "Мәтіннен БАРЛЫҚ тапсырмаларды түгел тап. Күні (day), айы (month), жылы (year - 2026), уақыты (time), атауы (text). ЖАУАП ТЕК JSON: [{\"day\": 11, \"month\": 11, \"year\": 2026, \"time\": \"20:00\", \"text\": \"Тапсырма\"}]"
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-            data=json.dumps({
-                "model": "openai/gpt-4o-mini",
-                "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": message.text}]
-            })
-        )
+            res_json = response.json()
+            response_text = res_json['choices'][0]['message']['content'].strip()
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
 
-        res_json = response.json()
-        response_text = res_json['choices'][0]['message']['content'].strip()
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
+            parsed_tasks = json.loads(response_text)
+            if chat_id not in user_tasks:
+                user_tasks[chat_id] = []
 
-        parsed_tasks = json.loads(response_text)
-        if chat_id not in user_tasks:
-            user_tasks[chat_id] = []
+            added_count = 0
+            for item in parsed_tasks:
+                d = int(item.get("day", datetime.now().day))
+                m = int(item.get("month", datetime.now().month))
+                y = int(item.get("year", datetime.now().year))
+                dt = datetime(y, m, d)
+                eng_wday = dt.strftime("%A")
+                wday_dict = {"ru": days_eng_map[eng_wday][0], "kz": days_eng_map[eng_wday][1]}
 
-        added_count = 0
-        for item in parsed_tasks:
-            d = int(item.get("day", datetime.now().day))
-            m = int(item.get("month", datetime.now().month))
-            y = int(item.get("year", datetime.now().year))
-            dt = datetime(y, m, d)
-            eng_wday = dt.strftime("%A")
-            wday_dict = {"ru": days_eng_map[eng_wday][0], "kz": days_eng_map[eng_wday][1]}
+                task_entry = {
+                    "date": f"{d:02d}.{m:02d}.{y}",
+                    "weekday_lang": wday_dict,
+                    "time": item.get("time", "23:59"),
+                    "text": item.get("text", message.text),
+                    "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
+                    "notified": False,
+                    "notified_set": True
+                }
+                user_tasks[chat_id].append(task_entry)
+                added_count += 1
 
-            task_entry = {
-                "date": f"{d:02d}.{m:02d}.{y}",
-                "weekday_lang": wday_dict,
-                "time": item.get("time", "23:59"),
-                "text": item.get("text", message.text),
-                "datetime": dt.replace(hour=int(item.get("time", "23:59").split(":")[0]), minute=int(item.get("time", "23:59").split(":")[1])),
-                "notified": False,
-                "notified_set": True
+            waiting_for_deadline[chat_id] = False
+            bot.edit_message_text(LANG[lang]["saved"].format(added_count), chat_id=chat_id, message_id=sent_msg.message_id, parse_mode="Markdown")
+        except Exception as e:
+            bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
+    else:
+        # /add басылмаған болса, кез келген хабарламаға қарапайым ИИ ретінде жауап береді
+        try:
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
             }
-            user_tasks[chat_id].append(task_entry)
-            added_count += 1
-
-        waiting_for_deadline[chat_id] = False
-        bot.edit_message_text(LANG[lang]["saved"].format(added_count), chat_id=chat_id, message_id=sent_msg.message_id, parse_mode="Markdown")
-    except Exception as e:
-        bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
+            ai_data = {
+                "model": "openai/gpt-4o-mini",
+                "messages": [{"role": "user", "content": message.text}]
+            }
+            resp = requests.post("https://openrouter.ai/api/v1/chat/completions", json=ai_data, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                answer = resp.json()['choices'][0]['message']['content'].strip()
+                bot.reply_to(message, answer)
+            else:
+                bot.reply_to(message, "Ошибка связи с ИИ." if lang == 'ru' else "ИИ байланыс қатесі.")
+        except Exception as e:
+            bot.reply_to(message, f"Ошибка: {e}")
 
 def reminder_worker():
     while True:
@@ -311,34 +329,4 @@ def reminder_worker():
         for chat_id, tasks in user_tasks.items():
             lang = get_lang(chat_id)
             for task in tasks:
-                if not task.get("notified", False) and task.get("notified_set", True) and "datetime" in task:
-                    time_left = task["datetime"] - now
-                    if timedelta(0) < time_left <= timedelta(hours=15):
-                        try:
-                            day_name = task["weekday_lang"][lang]
-                            msg = f"⏰ **НАПОМИНАНИЕ!**\n\nДо дедлайна осталось 15 часов!\n📌 Задача ({day_name}):\n- {task['text']}\n⏰ Время: {task['datetime'].strftime('%d.%m.%Y %H:%M')}" if lang == 'ru' else f"⏰ **ЕСКЕРТУ!**\n\nДедлайнға 15 сағат қалды!\n📌 Тапсырма ({day_name}):\n- {task['text']}\n⏰ Уақыты: {task['datetime'].strftime('%d.%m.%Y %H:%M')}"
-                            bot.send_message(chat_id, msg, parse_mode="Markdown")
-                            task["notified"] = True
-                        except Exception as e:
-                            print(f"Reminder error: {e}")
-        time.sleep(60)
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is alive and running 24/7!"
-
-def run_bot():
-    bot.infinity_polling(none_stop=True, interval=0)
-
-if __name__ == "__main__":
-    t_remind = threading.Thread(target=reminder_worker, daemon=True)
-    t_remind.start()
-
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+                if not task.get("notified", False) and
