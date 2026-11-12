@@ -45,6 +45,8 @@ LANG = {
         "notif_on": "🔔 Включено",
         "notif_off": "🔕 Выключено",
         "toggle_btn": "🔔 Изменить напоминание #{}",
+        "delete_btn": "🗑 Удалить #{}",
+        "deleted_success": "🗑 Задача успешно удалена!",
         "back": "🔙 Назад к дням"
     },
     "kz": {
@@ -57,6 +59,8 @@ LANG = {
         "notif_on": "🔔 Қосулы",
         "notif_off": "🔕 Өшірулі",
         "toggle_btn": "🔔 #{}" " ескертуді өзгерту",
+        "delete_btn": "🗑 Өшіру #{}",
+        "deleted_success": "🗑 Тапсырма сәтті өшірілді!",
         "back": "🔙 Күндерге қайту"
     }
 }
@@ -116,7 +120,12 @@ def handle_day_selection(call):
             global_idx = tasks.index(task)
             status = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
             text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {status}\n\n"
-            markup.add(types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{global_idx}"))
+            
+            # Түймелер: Ескертуді өзгерту және Өшіру
+            markup.row(
+                types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{global_idx}"),
+                types.InlineKeyboardButton(LANG[lang]["delete_btn"].format(i), callback_data=f"del_{global_idx}")
+            )
     else:
         text = LANG[lang]["no_tasks"]
         
@@ -148,9 +157,44 @@ def callback_toggle_notif(call):
             g_idx = tasks.index(task)
             st = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
             text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {st}\n\n"
-            markup.add(types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{g_idx}"))
+            markup.row(
+                types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{g_idx}"),
+                types.InlineKeyboardButton(LANG[lang]["delete_btn"].format(i), callback_data=f"del_{g_idx}")
+            )
         markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
         
+        bot.edit_message_text(text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('del_'))
+def callback_delete_task(call):
+    chat_id = call.message.chat.id
+    lang = get_lang(chat_id)
+    task_idx = int(call.data.split('_')[1])
+    
+    tasks = user_tasks.get(chat_id, [])
+    if 0 <= task_idx < len(tasks):
+        deleted_task = tasks.pop(task_idx)
+        bot.answer_callback_query(call.id, text=LANG[lang]["deleted_success"], show_alert=True)
+        
+        selected_kz_day = deleted_task["weekday_lang"]["kz"]
+        selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
+        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
+        
+        markup = types.InlineKeyboardMarkup()
+        if filtered_tasks:
+            text = LANG[lang]["tasks_title"].format(selected_day_name)
+            for i, task in enumerate(filtered_tasks, 1):
+                g_idx = tasks.index(task)
+                st = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
+                text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {st}\n\n"
+                markup.row(
+                    types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{g_idx}"),
+                    types.InlineKeyboardButton(LANG[lang]["delete_btn"].format(i), callback_data=f"del_{g_idx}")
+                )
+        else:
+            text = LANG[lang]["no_tasks"]
+            
+        markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
         bot.edit_message_text(text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_days")
@@ -304,7 +348,6 @@ def handle_text(message):
         except Exception as e:
             bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=sent_msg.message_id)
     else:
-        # ПЕРЕДАЕМ ИИ СПИСОК ВСЕХ СОХРАНЕННЫХ ДЕДЛАЙНОВ ПОЛЬЗОВАТЕЛЯ
         tasks = user_tasks.get(chat_id, [])
         tasks_context = "У пользователя сохранены следующие дедлайны:\n"
         if tasks:
