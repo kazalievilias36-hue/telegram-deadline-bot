@@ -24,7 +24,6 @@ days_data = {
     "kz": ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
 }
 
-# Ағылшынша апта күндерін орысша және қазақшаға дәл аудару картасы
 days_eng_map = {
     "Monday": ("Понедельник", "Дүйсенбі"),
     "Tuesday": ("Вторник", "Сейсенбі"),
@@ -44,6 +43,8 @@ LANG = {
         "tasks_title": "📌 **Дедлайны на {}:**\n\n",
         "saved": "✅ Успешно сохранено задач: **{}** шт.\n\nПроверить: /deadlines",
         "reset_success": "🔄 Все данные успешно очищены! Бот запущен с чистого листа. Используйте /add для добавления новых задач.",
+        "not_text": "⚠️ Я принимаю только текст или фото с расписанием! Используйте /add для добавления дедлайнов.",
+        "unknown_cmd": "❓ Неизвестная команда. Используйте /help или команды из меню.",
         "notif_on": "🔔 Включено",
         "notif_off": "🔕 Выключено",
         "toggle_btn": "🔔 Изменить #{}",
@@ -59,6 +60,8 @@ LANG = {
         "tasks_title": "📌 **{}:**\n\n",
         "saved": "✅ Барлық тапсырмалар (**{}** дана) сәтті сақталды!\n\nТексеру үшін /deadlines басыңыз.",
         "reset_success": "🔄 Барлық деректер сәтті тазартылды! Бот таза парақтан (с нуля) басталды. Жаңа тапсырма қосу үшін /add басыңыз.",
+        "not_text": "⚠️ Мен тек мәтінді немесе кесте суретін қабылдаймын! Дедлайн қосу үшін /add басыңыз.",
+        "unknown_cmd": "❓ Белгісіз команда. /help командасын немесе мәзірді қолданыңыз.",
         "notif_on": "🔔 Қосулы",
         "notif_off": "🔕 Өшірулі",
         "toggle_btn": "🔔 Өзгерту #{}",
@@ -97,6 +100,13 @@ def reset_bot_data(message):
     waiting_for_deadline[chat_id] = False
     bot.reply_to(message, LANG[lang]["reset_success"])
 
+@bot.message_handler(commands=['help'])
+def send_help(message):
+    chat_id = message.chat.id
+    lang = get_lang(chat_id)
+    help_text = LANG[lang]["set_lang"]
+    bot.reply_to(message, help_text)
+
 @bot.message_handler(commands=['deadlines'])
 def show_days_menu(message):
     chat_id = message.chat.id
@@ -107,10 +117,8 @@ def show_days_menu(message):
     days = days_data[lang]
     buttons = []
     for day in days:
-        # Қайта санаған кезде тікелей күн атауы бойынша тексереміз
         count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        # Қай күні екенін анықтау үшін индекс арқылы орысша атауын аламыз
         day_idx = days_data[lang].index(day)
         ru_day = days_data["ru"][day_idx]
         buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{ru_day}"))
@@ -121,11 +129,10 @@ def show_days_menu(message):
 def handle_day_selection(call):
     chat_id = call.message.chat.id
     lang = get_lang(chat_id)
-    selected_ru_day = call.data.split('_', 1)[1]  # Таңдалған орысша күн атауы
+    selected_ru_day = call.data.split('_', 1)[1]
     selected_day_name = days_data[lang][days_data["ru"].index(selected_ru_day)]
     
     tasks = user_tasks.get(chat_id, [])
-    # Мәндерді орысша күн атауы арқылы қатесіз сүзіп аламыз
     filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('ru') == selected_ru_day]
     
     markup = types.InlineKeyboardMarkup()
@@ -234,13 +241,20 @@ def start_add_deadline(message):
     waiting_for_deadline[chat_id] = True
     bot.reply_to(message, LANG[lang]["add_prompt"], parse_mode="Markdown")
 
+# СТИКЕР ЖӘНЕ БАСҚА ФОРМАТТАРДЫ ҰСТАУ (Шаг 7 талабы)
+@bot.message_handler(content_types=['sticker', 'audio', 'video', 'document', 'voice', 'video_note', 'animation'])
+def handle_non_text_files(message):
+    chat_id = message.chat.id
+    lang = get_lang(chat_id)
+    bot.reply_to(message, LANG[lang]["not_text"])
+
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
     if not waiting_for_deadline.get(chat_id, False):
-        bot.reply_to(message, "💡 Используйте /add для добавления дедлайна." if lang == 'ru' else "💡 Жаңа дедлайн қосу үшін /add басыңыз.")
+        bot.reply_to(message, LANG[lang]["not_text"])
         return
 
     sent_msg = bot.reply_to(message, "⏳ Обработка..." if lang == 'ru' else "⏳ Оқылуда...")
@@ -311,6 +325,11 @@ def handle_text(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
     
+    # БЕЛГІСІЗ/ҚАТЕ КОМАНДАЛАРДЫ ӨҢДЕУ (Егер сөз '/' символынан басталса, бірақ біздің командаларға кірмесе)
+    if message.text and message.text.startswith('/'):
+        bot.reply_to(message, LANG[lang]["unknown_cmd"])
+        return
+
     if waiting_for_deadline.get(chat_id, False):
         sent_msg = bot.reply_to(message, "⏳ Анализ..." if lang == 'ru' else "⏳ Талдануда...")
         try:
