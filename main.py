@@ -36,29 +36,31 @@ days_eng_map = {
 
 LANG = {
     "ru": {
-        "set_lang": "✅ Язык успешно установлен на Русский! Используйте /add для добавления и /deadlines для просмотра.",
+        "set_lang": "✅ Язык успешно установлен на Русский!\n\n📋 Команды:\n/add - Добавить дедлайны\n/deadlines - Посмотреть список\n/reset - Сбросить всё (с нуля)",
         "add_prompt": "📸 Отправьте **фото** или **текст** расписания с дедлайнами!",
         "choose_day": "📅 Выберите день недели:",
         "no_tasks": "📭 На этот день дедлайнов нет.",
         "tasks_title": "📌 **Дедлайны на {}:**\n\n",
         "saved": "✅ Успешно сохранено задач: **{}** шт.\n\nПроверить: /deadlines",
+        "reset_success": "🔄 Все данные успешно очищены! Бот запущен с чистого листа. Используйте /add для добавления новых задач.",
         "notif_on": "🔔 Включено",
         "notif_off": "🔕 Выключено",
-        "toggle_btn": "🔔 Изменить напоминание #{}",
+        "toggle_btn": "🔔 Изменить #{}",
         "delete_btn": "🗑 Удалить #{}",
         "deleted_success": "🗑 Задача успешно удалена!",
         "back": "🔙 Назад к дням"
     },
     "kz": {
-        "set_lang": "✅ Тіл қазақшаға ауыстырылды! Тапсырма қосу үшін /add, көру үшін /deadlines басыңыз.",
+        "set_lang": "✅ Тіл қазақшаға ауыстырылды!\n\n📋 Командалар:\n/add - Дедлайн қосу\n/deadlines - Тізімді көру\n/reset - Барлығын өшіріп, с нуля бастау",
         "add_prompt": "📸 Дедлайн көрсетілген **суретті** немесе **мәтінді** жіберіңіз!",
         "choose_day": "📅 Дедлайндарды көру үшін апта күнін басыңыз:",
         "no_tasks": "📭 Бұл күні ешқандай дедлайн тіркелмеген.",
         "tasks_title": "📌 **{}:**\n\n",
         "saved": "✅ Барлық тапсырмалар (**{}** дана) сәтті сақталды!\n\nТексеру үшін /deadlines басыңыз.",
+        "reset_success": "🔄 Барлық деректер сәтті тазартылды! Бот таза парақтан (с нуля) басталды. Жаңа тапсырма қосу үшін /add басыңыз.",
         "notif_on": "🔔 Қосулы",
         "notif_off": "🔕 Өшірулі",
-        "toggle_btn": "🔔 #{}" " ескертуді өзгерту",
+        "toggle_btn": "🔔 Өзгерту #{}",
         "delete_btn": "🗑 Өшіру #{}",
         "deleted_success": "🗑 Тапсырма сәтті өшірілді!",
         "back": "🔙 Күндерге қайту"
@@ -85,6 +87,15 @@ def callback_lang(call):
     user_langs[chat_id] = lang
     bot.answer_callback_query(call.id)
     bot.edit_message_text(LANG[lang]["set_lang"], chat_id, call.message.message_id)
+
+@bot.message_handler(commands=['reset'])
+def reset_bot_data(message):
+    chat_id = message.chat.id
+    lang = get_lang(chat_id)
+    # Барлық сақталған деректерді нөлдеу
+    user_tasks[chat_id] = []
+    waiting_for_deadline[chat_id] = False
+    bot.reply_to(message, LANG[lang]["reset_success"])
 
 @bot.message_handler(commands=['deadlines'])
 def show_days_menu(message):
@@ -121,7 +132,6 @@ def handle_day_selection(call):
             status = LANG[lang]["notif_on"] if task.get("notified_set", True) else LANG[lang]["notif_off"]
             text += f"{i}. 📌 **{task.get('text', '')}**\n   📅 {task.get('date', '')} | ⏰ {task.get('time', '')}\n   Статус: {status}\n\n"
             
-            # Түймелер: Ескертуді өзгерту және Өшіру
             markup.row(
                 types.InlineKeyboardButton(LANG[lang]["toggle_btn"].format(i), callback_data=f"toggle_{global_idx}"),
                 types.InlineKeyboardButton(LANG[lang]["delete_btn"].format(i), callback_data=f"del_{global_idx}")
@@ -130,7 +140,6 @@ def handle_day_selection(call):
         text = LANG[lang]["no_tasks"]
         
     markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
-    
     bot.answer_callback_query(call.id)
     bot.edit_message_text(text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
@@ -162,7 +171,6 @@ def callback_toggle_notif(call):
                 types.InlineKeyboardButton(LANG[lang]["delete_btn"].format(i), callback_data=f"del_{g_idx}")
             )
         markup.add(types.InlineKeyboardButton(LANG[lang]["back"], callback_data="back_to_days"))
-        
         bot.edit_message_text(text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('del_'))
