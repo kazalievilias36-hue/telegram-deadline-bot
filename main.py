@@ -24,6 +24,7 @@ days_data = {
     "kz": ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
 }
 
+# Ағылшынша апта күндерін орысша және қазақшаға дәл аудару картасы
 days_eng_map = {
     "Monday": ("Понедельник", "Дүйсенбі"),
     "Tuesday": ("Вторник", "Сейсенбі"),
@@ -31,7 +32,7 @@ days_eng_map = {
     "Thursday": ("Четверг", "Бейсенбі"),
     "Friday": ("Пятница", "Жұма"),
     "Saturday": ("Суббота", "Сенбі"),
-    "Sunday": ("Воскресенье", "Воскресенье")
+    "Sunday": ("Воскресенье", "Жексенбі")
 }
 
 LANG = {
@@ -92,7 +93,6 @@ def callback_lang(call):
 def reset_bot_data(message):
     chat_id = message.chat.id
     lang = get_lang(chat_id)
-    # Барлық сақталған деректерді нөлдеу
     user_tasks[chat_id] = []
     waiting_for_deadline[chat_id] = False
     bot.reply_to(message, LANG[lang]["reset_success"])
@@ -107,10 +107,13 @@ def show_days_menu(message):
     days = days_data[lang]
     buttons = []
     for day in days:
+        # Қайта санаған кезде тікелей күн атауы бойынша тексереміз
         count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        kz_day = days_data["kz"][days_data[lang].index(day)]
-        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
+        # Қай күні екенін анықтау үшін индекс арқылы орысша атауын аламыз
+        day_idx = days_data[lang].index(day)
+        ru_day = days_data["ru"][day_idx]
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{ru_day}"))
     markup.add(*buttons)
     bot.reply_to(message, LANG[lang]["choose_day"], reply_markup=markup)
 
@@ -118,11 +121,12 @@ def show_days_menu(message):
 def handle_day_selection(call):
     chat_id = call.message.chat.id
     lang = get_lang(chat_id)
-    selected_kz_day = call.data.split('_')[1]
-    selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
+    selected_ru_day = call.data.split('_', 1)[1]  # Таңдалған орысша күн атауы
+    selected_day_name = days_data[lang][days_data["ru"].index(selected_ru_day)]
     
     tasks = user_tasks.get(chat_id, [])
-    filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
+    # Мәндерді орысша күн атауы арқылы қатесіз сүзіп аламыз
+    filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('ru') == selected_ru_day]
     
     markup = types.InlineKeyboardMarkup()
     if filtered_tasks:
@@ -156,9 +160,9 @@ def callback_toggle_notif(call):
         status_text = LANG[lang]["notif_on"] if tasks[task_idx]["notified_set"] else LANG[lang]["notif_off"]
         bot.answer_callback_query(call.id, text=f"✅ Статус: {status_text}", show_alert=True)
         
-        selected_kz_day = tasks[task_idx]["weekday_lang"]["kz"]
-        selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
-        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
+        selected_ru_day = tasks[task_idx]["weekday_lang"]["ru"]
+        selected_day_name = days_data[lang][days_data["ru"].index(selected_ru_day)]
+        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('ru') == selected_ru_day]
         
         markup = types.InlineKeyboardMarkup()
         text = LANG[lang]["tasks_title"].format(selected_day_name)
@@ -184,9 +188,9 @@ def callback_delete_task(call):
         deleted_task = tasks.pop(task_idx)
         bot.answer_callback_query(call.id, text=LANG[lang]["deleted_success"], show_alert=True)
         
-        selected_kz_day = deleted_task["weekday_lang"]["kz"]
-        selected_day_name = days_data[lang][days_data["kz"].index(selected_kz_day)]
-        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('kz') == selected_kz_day]
+        selected_ru_day = deleted_task["weekday_lang"]["ru"]
+        selected_day_name = days_data[lang][days_data["ru"].index(selected_ru_day)]
+        filtered_tasks = [t for t in tasks if t.get('weekday_lang', {}).get('ru') == selected_ru_day]
         
         markup = types.InlineKeyboardMarkup()
         if filtered_tasks:
@@ -217,8 +221,9 @@ def callback_back(call):
     for day in days:
         count = len([t for t in tasks if t.get('weekday_lang', {}).get(lang) == day])
         label = f"📌 {day} ({count})" if count > 0 else f"⚪ {day}"
-        kz_day = days_data["kz"][days_data[lang].index(day)]
-        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{kz_day}"))
+        day_idx = days_data[lang].index(day)
+        ru_day = days_data["ru"][day_idx]
+        buttons.append(types.InlineKeyboardButton(label, callback_data=f"day_{ru_day}"))
     markup.add(*buttons)
     bot.edit_message_text(LANG[lang]["choose_day"], chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
 
